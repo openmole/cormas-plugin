@@ -1,7 +1,7 @@
 package org.openmole.plugin.task.cormas
 
 import monocle.macros.Lenses
-import org.openmole.core.context.Context
+import org.openmole.core.context.{ Context, Namespace }
 import org.openmole.core.expansion.FromContext
 import org.openmole.core.fileservice.FileService
 import org.openmole.core.networkservice.NetworkService
@@ -21,6 +21,7 @@ import org.json4s._
 import org.json4s.jackson.JsonMethods._
 import org.openmole.core.outputmanager.OutputManager
 import org.openmole.core.dsl._
+import org.openmole.core.exception.UserBadDataError
 
 object CORMASTask {
 
@@ -30,20 +31,13 @@ object CORMASTask {
 
   implicit def isInfo = InfoBuilder(info)
 
-  implicit def isBuilder = new ReturnValue[CORMASTask] with ErrorOnReturnValue[CORMASTask] with StdOutErr[CORMASTask] with EnvironmentVariables[CORMASTask] with HostFiles[CORMASTask] with WorkDirectory[CORMASTask] {
-    builder ⇒
+  implicit def isBuilder = new ReturnValue[CORMASTask] with ErrorOnReturnValue[CORMASTask] with StdOutErr[CORMASTask] with EnvironmentVariables[CORMASTask] with HostFiles[CORMASTask] with WorkDirectory[CORMASTask] { builder ⇒
     override def returnValue = CORMASTask.returnValue
-
     override def errorOnReturnValue = CORMASTask.errorOnReturnValue
-
     override def stdOut = CORMASTask.stdOut
-
     override def stdErr = CORMASTask.stdErr
-
     override def environmentVariables = CORMASTask.uDocker composeLens UDockerArguments.environmentVariables
-
     override def hostFiles = CORMASTask.uDocker composeLens UDockerArguments.hostFiles
-
     override def workDirectory = CORMASTask.uDocker composeLens UDockerArguments.workDirectory
   }
 
@@ -105,9 +99,21 @@ object CORMASTask {
     def inputsFields: Seq[JField] = cormasInputs.map { case (v, name) => name -> (toJSONValue(context(v)): JValue) }
     def inputDictionary = JObject(inputsFields: _*)
 
+    def readOutputJSON(file: File) = {
+      import org.json4s._
+      import org.json4s.jackson.JsonMethods._
+      val outputValues = parse(file.content)
+      val outputMap = outputValues.asInstanceOf[JObject].obj.toMap
+      cormasOutputs.map {
+        case (name, v) =>
+          jValueToVariable(outputMap.getOrElse(name, throw new UserBadDataError(s"Output named $name not found in the resulting json file ($outputJSONName) content is ${file.content}.")).asInstanceOf[JValue], v)
+      }
+    }
+
+    val outputFile = Val[File]("outputFile", Namespace("CormasTask"))
+
     newFile.withTmpFile("inputs", ".json") { jsonInputs ⇒
       jsonInputs.content = compact(render(inputDictionary))
-      OutputManager.systemOutput.println(jsonInputs.content)
 
       def uDockerTask =
         UDockerTask(
@@ -120,10 +126,11 @@ object CORMASTask {
           _config,
           external,
           info) set (
-            resources += (jsonInputs, inputJSONName, true))
+            resources += (jsonInputs, inputJSONName, true),
+            outputFiles += (outputJSONName, outputFile))
 
       val resultContext = uDockerTask.process(executionContext).from(context)
-      resultContext
+      resultContext ++ readOutputJSON(resultContext(outputFile))
     }
 
   }
