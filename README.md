@@ -18,18 +18,33 @@ Each JSON files will be sent within a docker container with Pharo/Cormas. Each i
 Those results will be formed in JSON and send back from the docker file to OpenMole where data will be serialized and instanced as an aggregation of openMole variable.  
 
 ## How to use it ?
-Once you have load `cormas-task_XX.jar` you will be able to interact whit pharo/cormas.
+Once you have loads `cormas-task_XX.jar` you will be able to interact with pharo/cormas using the common way of thinking in OpenMole.
 
+How does it work ? Take a look at those exemple !
 
+### Basic CORMASTask in a workflow
+
+Basically you can prepare a script as :
 
 ```
-
+// OpenMole Variable definition.
+// Those variables will be populated in openMole
+// and send in JSON to Pharo/Cormas
 val numberOfFires = Val[Int]
 val numberOfFiremen = Val[Int]
 val percentageOfTrees = Val[Double]
 val dimensionMin = Val[Int]
 val dimensionMax = Val[Int]
 val nbTrees = Val[Int]
+
+// The CORMASTask take in parameters the class and method able to
+// launch our simulation. In OUr case using the Cormas-Model-FireAutomata
+// we run a methods build for OpenMole. You can take a look.
+// set() allow you to pass some other thing to your task. You can pass :
+// * your model as a file.st
+// * inputs from OpenMole Variable
+// * outputs as an array
+// * defined parameters how doesn't change between simulation.
 
 val model = CORMASTask("CMFireAutomataModel simuOpenMole") set (
   //resources += workDirectory / "Cormas-Model-FireAutomata.st",
@@ -49,6 +64,8 @@ val model = CORMASTask("CMFireAutomataModel simuOpenMole") set (
   dimensionMax := 80
 )
 
+// With the DirectSampling() method you define an easy wait to generate
+// a sampling for numberOfFires between 1 to 10.
 DirectSampling(
   evaluation = model hook CSVHook(workDirectory / "results.csv"),
   sampling = numberOfFires in (1 to 10)
@@ -56,8 +73,11 @@ DirectSampling(
 
 ```
 
-```
+### Use result as input for another task
 
+This example is quite the same as before. The only difference is in the `DirectSampling()` methods in which we plug results in a calculation task in order to have the median when all run is turned back.
+
+```
 val numberOfFires = Val[Int]
 val numberOfFiremen = Val[Int]
 val percentageOfTrees = Val[Double]
