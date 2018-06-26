@@ -1,0 +1,10 @@
+#!/bin/bash
+
+(cd openmole && \
+    (cd build-system && sbt publishLocal) && \
+    (cd libraries && sbt publishLocal) && \
+    (cd openmole && sbt publishLocal))
+
+sbt clean osgiBundle
+
+
