@@ -13,7 +13,7 @@ import org.openmole.core.workflow.task.{ Task, TaskExecutionContext }
 import org.openmole.core.workflow.validation.ValidateTask
 import org.openmole.core.workspace.{ NewFile, Workspace }
 import org.openmole.plugin.task.container
-import org.openmole.plugin.task.container.HostFiles
+import org.openmole.plugin.task.container.{ HostFile, HostFiles }
 import org.openmole.plugin.task.external._
 import org.openmole.plugin.task.systemexec.{ ErrorOnReturnValue, ReturnValue, StdOutErr, WorkDirectory }
 import org.openmole.plugin.task.udocker.{ UDockerArguments, UDockerTask }
@@ -49,7 +49,14 @@ object CORMASTask {
 
   def apply(
     script: FromContext[String],
-    forceUpdate: Boolean = false)(implicit name: sourcecode.Name, definitionScope: DefinitionScope, newFile: NewFile, workspace: Workspace, preference: Preference, fileService: FileService, threadProvider: ThreadProvider, outputRedirection: OutputRedirection, networkService: NetworkService) = {
+    forceUpdate: Boolean = false,
+    errorOnReturnValue: Boolean = true,
+    returnValue: OptionalArgument[Val[Int]] = None,
+    stdOut: OptionalArgument[Val[String]] = None,
+    stdErr: OptionalArgument[Val[String]] = None,
+    environmentVariables: Vector[(String, FromContext[String])] = Vector.empty,
+    hostFiles: Vector[HostFile] = Vector.empty,
+    workDirectory: OptionalArgument[String] = None)(implicit name: sourcecode.Name, definitionScope: DefinitionScope, newFile: NewFile, workspace: Workspace, preference: Preference, fileService: FileService, threadProvider: ThreadProvider, outputRedirection: OutputRedirection, networkService: NetworkService) = {
     //    val installCommands =
     //      install ++ InstallCommand.installCommands(libraries.toVector ++ Seq(InstallCommand.RLibrary("jsonlite")))
 
@@ -60,15 +67,18 @@ object CORMASTask {
         cacheInstall = true,
         forceUpdate = forceUpdate,
         mode = "P1",
-        reuseContainer = true)
+        reuseContainer = true).copy(
+          environmentVariables = environmentVariables,
+          hostFiles = hostFiles,
+          workDirectory = workDirectory)
 
     new CORMASTask(
       script,
       uDockerArguments,
-      errorOnReturnValue = true,
-      returnValue = None,
-      stdOut = None,
-      stdErr = None,
+      errorOnReturnValue = errorOnReturnValue,
+      returnValue = returnValue,
+      stdOut = stdOut,
+      stdErr = stdErr,
       _config = InputOutputConfig(),
       external = External(),
       info = InfoConfig(),
@@ -91,6 +101,8 @@ object CORMASTask {
   cormasInputs: Vector[(Val[_], String)],
   cormasOutputs: Vector[(String, Val[_])]) extends Task with ValidateTask {
 
+  lazy val containerPoolKey = UDockerTask.newCacheKey
+
   override def config = UDockerTask.config(_config, returnValue, stdOut, stdErr)
   override def validate = container.validateContainer(Vector(), uDocker.environmentVariables, external, inputs)
 
@@ -107,7 +119,6 @@ object CORMASTask {
 
     newFile.withTmpFile("inputs", ".json") { jsonInputs ⇒
       jsonInputs.content = compact(render(inputDictionary))
-      OutputManager.systemOutput.println(jsonInputs.content)
 
       def uDockerTask =
         UDockerTask(
@@ -119,7 +130,8 @@ object CORMASTask {
           stdErr,
           _config,
           external,
-          info) set (
+          info,
+          containerPoolKey = containerPoolKey) set (
             resources += (jsonInputs, inputJSONName, true))
 
       val resultContext = uDockerTask.process(executionContext).from(context)
